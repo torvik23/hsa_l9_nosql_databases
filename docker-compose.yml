@@ -1,0 +1,72 @@
+version: '3.8'
+
+networks:
+  frontend:
+    driver: ${NETWORKS_DRIVER}
+  backend:
+    driver: ${NETWORKS_DRIVER}
+volumes:
+  elasticsearch:
+    driver: ${VOLUMES_DRIVER}
+services:
+  elasticsearch:
+    build:
+      context: ./docker/elasticsearch
+      args:
+        - ELASTICSEARCH_VERSION=${ELASTICSEARCH_VERSION}
+    container_name: elasticsearch
+    volumes:
+      - ./volume/data/elasticsearch:/usr/share/elasticsearch/data
+    environment:
+      - cluster.name=hsa-cluster
+      - node.name=hsa-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - cluster.initial_master_nodes=hsa-node
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "${ELASTICSEARCH_HOST_HTTP_PORT}:9200"
+      - "${ELASTICSEARCH_HOST_TRANSPORT_PORT}:9300"
+    networks:
+      - frontend
+      - backend
+  php-fpm:
+    build:
+      context: ./docker/php-fpm
+    container_name: php-fpm
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOST=${ELASTICSEARCH_HOST}
+      - APP_ENV=${APP_ENV}
+    expose:
+      - "9000"
+    volumes:
+      - ./application:/var/www/html
+    networks:
+      - backend
+  nginx:
+    build:
+      context: ./docker/nginx
+      args:
+        - PHP_UPSTREAM_CONTAINER=${NGINX_PHP_UPSTREAM_CONTAINER}
+        - PHP_UPSTREAM_PORT=${NGINX_PHP_UPSTREAM_PORT}
+    container_name: nginx
+    restart: always
+    volumes:
+      - ./application:/var/www/html
+      - ./docker/nginx/sites-available:/etc/nginx/sites-available
+      - ./volume/logs:/var/log
+    depends_on:
+      - php-fpm
+    ports:
+      - "${NGINX_HOST_HTTP_PORT}:80"
+    networks:
+      - backend
+      - frontend
